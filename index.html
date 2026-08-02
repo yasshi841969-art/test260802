@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PhotoMap Log</title>
+  <!-- Google Fonts (Outfit & Noto Sans JP) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  
+  <style>
+    /* --- CSS Reset & Variables --- */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent-color: #6366f1;
+      --accent-gradient: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+      --success-gradient: linear-gradient(135deg, #34d399 0%, #059669 100%);
+      --danger-gradient: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+      --nav-bg: rgba(15, 23, 42, 0.85);
+      --font-main: 'Outfit', 'Noto Sans JP', sans-serif;
+    }
+
+    body {
+      font-family: var(--font-main);
+      background: var(--bg-gradient);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* --- Container & Content --- */
+    .app-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 480px; /* スマホ表示の最大幅 */
+      margin: 0 auto;
+      position: relative;
+      padding-bottom: 96px; /* タブバーと被らないための余白 */
+    }
+
+    header {
+      padding: 20px 20px 10px;
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 1000; /* Leafletマップの重なり順を考慮 */
+      background: rgba(15, 23, 42, 0.4);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 800;
+      background: linear-gradient(to right, #a5b4fc, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    /* 新規作成に戻るバッジ（編集時のみ表示） */
+    .edit-mode-badge {
+      display: none;
+      background: #f59e0b;
+      color: #0f172a;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      cursor: pointer;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.4);
+    }
+
+    main {
+      flex: 1;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* --- Screens (SPA Sections) --- */
+    .screen {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      height: 100%;
+    }
+
+    .screen.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* --- Common Card Design --- */
+    .app-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 20px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    }
+
+    /* --- Map Containers --- */
+    .map-wrapper {
+      position: relative;
+      width: 100%;
+      height: 260px;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      z-index: 1;
+    }
+
+    .map-element {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Map coordinates display overlay */
+    .coords-overlay {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    .coords-overlay span {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    /* Leafletの著作権表示の色調整 */
+    .leaflet-control-attribution {
+      background: rgba(15, 23, 42, 0.7) !important;
+      color: #94a3b8 !important;
+    }
+    .leaflet-control-attribution a {
+      color: #a5b4fc !important;
+    }
+
+    /* --- Form Elements --- */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-input, .form-textarea {
+      width: 100%;
+      padding: 12px 14px;
+      font-family: var(--font-main);
+      font-size: 0.9rem;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      color: var(--text-primary);
+      transition: all 0.3s ease;
+    }
+
+    .form-input:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--accent-color);
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+    }
+
+    .form-textarea {
+      resize: vertical;
+      min-height: 70px;
+    }
+
+    /* Custom File Input design */
+    .file-input-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .file-input-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+
+    .btn-file-select {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      height: 46px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px dashed rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      color: var(--text-primary);
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-file-select:active {
+      background: rgba(255, 255, 255, 0.12);
+      transform: scale(0.98);
+    }
+
+    .image-preview-container {
+      width: 100%;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--card-border);
+      background: rgba(0, 0, 0, 0.2);
+      display: none;
+      position: relative;
+    }
+
+    .image-preview {
+      width: 100%;
+      height: auto;
+      max-height: 180px;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .btn-remove-preview {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(15, 23, 42, 0.8);
+      color: white;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+
+    /* Submit & Save buttons */
+    .btn-save {
+      width: 100%;
+      height: 48px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent-gradient);
+      color: white;
+      font-family: var(--font-main);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+      transition: all 0.2s ease;
+    }
+
+    .btn-save:active {
+      transform: scale(0.98);
+      box-shadow: 0 2px 6px rgba(99, 102, 241, 0.2);
+    }
+
+    /* --- Toast Notification --- */
+    .toast {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--success-gradient);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.3);
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 2000;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* --- History Timeline List --- */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .history-item {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      position: relative;
+    }
+
+    .history-img-wrapper {
+      width: 80px;
+      height: 80px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.2);
+      flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .history-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .history-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .history-date {
+      font-size: 0.75rem;
+      color: var(--accent-color);
+      font-weight: 600;
+    }
+
+    .history-comment {
+      font-size: 0.85rem;
+      line-height: 1.4;
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+
+    .history-coords {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 4px;
+    }
+
+    .history-actions {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-action {
+      background: rgba(255, 255, 255, 0.08);
+      border: none;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text-primary);
+      font-size: 0.8rem;
+      transition: all 0.2s ease;
+    }
+
+    .btn-action.delete:hover {
+      background: var(--danger-gradient);
+    }
+
+    .btn-action.edit:hover {
+      background: var(--accent-gradient);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-secondary);
+    }
+
+    .empty-icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+    }
+
+    /* --- Bottom Tab Bar --- */
+    .tab-bar {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 480px;
+      height: 68px;
+      background: var(--nav-bg);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      z-index: 1000;
+      padding-bottom: env(safe-area-inset-bottom, 8px); /* iPhone下部のセーフエリア対応 */
+    }
+
+    .tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      min-height: 48px;
+    }
+
+    .tab-icon {
+      font-size: 1.3rem;
+      margin-bottom: 2px;
+      transition: transform 0.2s ease;
+    }
+
+    .tab-label {
+      font-size: 0.65rem;
+      font-weight: 600;
+    }
+
+    .tab-item.active {
+      color: var(--accent-color);
+    }
+
+    .tab-item.active .tab-icon {
+      transform: scale(1.12);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header>
+      <h1 id="app-title">📸 撮影・記録</h1>
+      <!-- 編集モード中のみ表示するバッジ -->
+      <div id="edit-badge" class="edit-mode-badge" onclick="exitEditMode()">
+        <span>✏️ 編集モード中 (解除)</span>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main>
+      
+      <!-- 1. 📸撮影・記録画面 -->
+      <section id="screen-shoot" class="screen active">
+        <div id="shoot-form-container" class="app-card" style="display: flex; flex-direction: column; gap: 14px;">
+          <!-- Map Section -->
+          <div>
+            <h3 style="margin-bottom: 8px; font-size: 0.95rem; font-weight: 600;">① 位置情報を設定 (タップまたはピンをドラッグ)</h3>
+            <div class="map-wrapper">
+              <div class="coords-overlay">
+                緯度: <span id="current-lat">取得中...</span>, 経度: <span id="current-lng">取得中...</span>
+              </div>
+              <div id="map-record" class="map-element"></div>
+            </div>
+          </div>
+
+          <!-- Photo upload Section -->
+          <div class="file-input-wrapper">
+            <label class="form-label">② 写真を撮影または選択</label>
+            <button type="button" class="btn-file-select" onclick="document.getElementById('input-photo').click()">
+              📸 写真を選ぶ・撮影する
+            </button>
+            <input 
+              type="file" 
+              id="input-photo" 
+              class="file-input-hidden" 
+              accept="image/*"
+            >
+            <!-- Preview Container -->
+            <div id="preview-container" class="image-preview-container">
+              <button type="button" id="btn-clear-photo" class="btn-remove-preview">&times;</button>
+              <img id="img-preview" class="image-preview" src="" alt="プレビュー">
+            </div>
+          </div>
+
+          <!-- Comment input -->
+          <div class="form-group">
+            <label for="input-comment" class="form-label">③ コメント</label>
+            <textarea 
+              id="input-comment" 
+              class="form-textarea" 
+              placeholder="この場所の思い出やメモを残しましょう..."
+            ></textarea>
+          </div>
+
+          <!-- DateTime Input -->
+          <div class="form-group">
+            <label for="input-datetime" class="form-label">④ 記録日時</label>
+            <input 
+              type="datetime-local" 
+              id="input-datetime" 
+              class="form-input"
+            >
+          </div>
+
+          <!-- Save Button -->
+          <button id="btn-save-record" class="btn-save" style="margin-top: 6px;">
+            💾 記録を保存
+          </button>
+        </div>
+      </section>
+
+      <!-- 2. 📝履歴一覧画面 -->
+      <section id="screen-history" class="screen">
+        <div id="history-container" class="history-list">
+          <!-- 動的に履歴が挿入されます -->
+        </div>
+      </section>
+
+      <!-- 3. 🗺️全体マップ画面 -->
+      <section id="screen-map" class="screen" style="flex: 1; height: 100%;">
+        <div class="app-card" style="flex: 1; display: flex; flex-direction: column; min-height: 400px; padding: 12px;">
+          <h3 style="margin-bottom: 8px; font-size: 0.95rem; font-weight: 600;">全体マップ (ピンをタップして編集)</h3>
+          <div class="map-wrapper" style="flex: 1; height: 100%;">
+            <div id="map-all" class="map-element"></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast-notification" class="toast">
+      保存しました！ 💾
+    </div>
+
+    <!-- Bottom Navigation Bar (3 items) -->
+    <nav class="tab-bar">
+      <button class="tab-item active" data-target="shoot" aria-label="撮影・記録">
+        <span class="tab-icon">📸</span>
+        <span class="tab-label">記録</span>
+      </button>
+      <button class="tab-item" data-target="history" aria-label="履歴一覧">
+        <span class="tab-icon">📝</span>
+        <span class="tab-label">履歴</span>
+      </button>
+      <button class="tab-item" data-target="map" aria-label="全体マップ">
+        <span class="tab-icon">🗺️</span>
+        <span class="tab-label">マップ</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- JavaScript -->
+  <script>
+    // --- Global State & Constants ---
+    const LOGS_STORAGE_KEY = 'photo_logs';
+
+    let recordMap = null;
+    let allMap = null;
+    let recordMarker = null;
+    let allMapMarkers = []; // 全体マップのマーカー追跡用
+
+    // デフォルト位置 (東京駅)
+    let selectedLocation = { lat: 35.681236, lng: 139.767125 };
+    let initialLocation = { lat: 35.681236, lng: 139.767125 }; // 測位できた場合の初期位置リセット用
+    let base64ImageData = null;
+
+    // 編集モード状態管理
+    let editingLogId = null; 
+
+    // --- DOM Elements ---
+    const tabItems = document.querySelectorAll('.tab-bar .tab-item');
+    const screens = document.querySelectorAll('.screen');
+    const appTitle = document.getElementById('app-title');
+    const editBadge = document.getElementById('edit-badge');
+    const toast = document.getElementById('toast-notification');
+
+    const currentLatSpan = document.getElementById('current-lat');
+    const currentLngSpan = document.getElementById('current-lng');
+
+    const photoInput = document.getElementById('input-photo');
+    const previewContainer = document.getElementById('preview-container');
+    const imgPreview = document.getElementById('img-preview');
+    const clearPhotoBtn = document.getElementById('btn-clear-photo');
+    const commentInput = document.getElementById('input-comment');
+    const datetimeInput = document.getElementById('input-datetime');
+    const saveRecordBtn = document.getElementById('btn-save-record');
+    const historyContainer = document.getElementById('history-container');
+
+    const screenTitles = {
+      shoot: '📸 撮影・記録',
+      history: '📝 履歴一覧',
+      map: '🗺️ 全体マップ'
+    };
+
+    // --- Time Utility ---
+    const setInitialDateTime = () => {
+      const now = new Date();
+      const offset = now.getTimezoneOffset() * 60000;
+      const localISOTime = (new Date(now - offset)).toISOString().slice(0, 16);
+      datetimeInput.value = localISOTime;
+    };
+
+    // --- Show Toast Helper ---
+    let toastTimeout;
+    const showToast = (message) => {
+      clearTimeout(toastTimeout);
+      toast.textContent = message || "保存しました！ 💾";
+      toast.classList.add('show');
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
+    };
+
+    // --- Initialize Leaflet Map (Record Screen) ---
+    function initRecordMap(lat, lng) {
+      if (recordMap) {
+        // すでに存在する場合は位置更新
+        recordMap.setView([lat, lng], 16);
+        if (recordMarker) {
+          recordMarker.setLatLng([lat, lng]);
+        }
+        updateCoordsDisplay(lat, lng);
+        return;
+      }
+
+      // 地図オブジェクト初期化
+      recordMap = L.map('map-record').setView([lat, lng], 16);
+
+      // OpenStreetMapタイルレイヤーの追加 (ダークモード風カートグラフィックスタイルを当てる場合は他タイルも選択肢ですが、標準OSMを読み込みます)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(recordMap);
+
+      // ドラッグ可能なマーカーを作成
+      recordMarker = L.marker([lat, lng], {
+        draggable: true
+      }).addTo(recordMap);
+
+      updateCoordsDisplay(lat, lng);
+
+      // ドラッグ終了イベント
+      recordMarker.on('dragend', function (e) {
+        const latlng = recordMarker.getLatLng();
+        selectedLocation = { lat: latlng.lat, lng: latlng.lng };
+        updateCoordsDisplay(latlng.lat, latlng.lng);
+      });
+
+      // マップタップイベント
+      recordMap.on('click', function (e) {
+        const latlng = e.latlng;
+        recordMarker.setLatLng(latlng);
+        selectedLocation = { lat: latlng.lat, lng: latlng.lng };
+        updateCoordsDisplay(latlng.lat, latlng.lng);
+      });
+    }
+
+    // --- Initialize Leaflet Map (All Map Screen) ---
+    function initAllMap() {
+      if (allMap) return;
+
+      // 全体マップ初期化。デフォルトで日本中心
+      allMap = L.map('map-all').setView([36.2048, 138.2529], 5);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(allMap);
+    }
+
+    // 全体マップのマーカーを更新
+    function refreshAllMapMarkers() {
+      if (!allMap) return;
+
+      // 既存マーカーをすべて削除
+      allMapMarkers.forEach(m => allMap.removeLayer(m));
+      allMapMarkers = [];
+
+      const logs = getLogsFromStorage();
+      if (logs.length === 0) return;
+
+      const group = [];
+      logs.forEach(log => {
+        if (log.location && log.location.lat && log.location.lng) {
+          const marker = L.marker([log.location.lat, log.location.lng]).addTo(allMap);
+          
+          // マーカーをクリックした際のイベント: 記録画面に遷移して編集状態へ
+          marker.on('click', () => {
+            enterEditMode(log);
+          });
+          
+          allMapMarkers.push(marker);
+          group.push([log.location.lat, log.location.lng]);
+        }
+      });
+
+      // マーカーが複数ある場合、すべてが画面に収まるように表示調整
+      if (group.length > 0) {
+        allMap.fitBounds(group, { padding: [50, 50] });
+      }
+    }
+
+    function updateCoordsDisplay(lat, lng) {
+      currentLatSpan.textContent = parseFloat(lat).toFixed(6);
+      currentLngSpan.textContent = parseFloat(lng).toFixed(6);
+    }
+
+    // --- LocalStorage Helpers ---
+    function getLogsFromStorage() {
+      const saved = localStorage.getItem(LOGS_STORAGE_KEY);
+      if (!saved) return [];
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("解析エラー、空配列を返却します", e);
+        return [];
+      }
+    }
+
+    function saveLogsToStorage(logs) {
+      localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(logs));
+    }
+
+    // --- Image Compression (Canvas) ---
+    const processAndCompressImage = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const max_size = 640;
+
+            // リサイズ計算 (アスペクト比維持)
+            if (width > height) {
+              if (width > max_size) {
+                height *= max_size / width;
+                width = max_size;
+              }
+            } else {
+              if (height > max_size) {
+                width *= max_size / height;
+                height = max_size;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // 品質0.55でJPEG圧縮し、Base64データURLを生成
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.55);
+            resolve(compressedBase64);
+          };
+          img.onerror = (err) => reject(err);
+        };
+        reader.onerror = (err) => reject(err);
+      });
+    };
+
+    // --- Edit Mode Controller ---
+    function enterEditMode(log) {
+      editingLogId = log.id;
+      editBadge.style.display = 'inline-flex';
+
+      // 1. 各フォームにデータをセット
+      commentInput.value = log.comment || '';
+      datetimeInput.value = log.datetime || '';
+      
+      if (log.image) {
+        base64ImageData = log.image;
+        imgPreview.src = log.image;
+        previewContainer.style.display = 'block';
+      } else {
+        clearPhotoSelection();
+      }
+
+      // 2. 位置情報をセットし、地図上のピンを動かす
+      selectedLocation = { lat: log.location.lat, lng: log.location.lng };
+      initRecordMap(selectedLocation.lat, selectedLocation.lng);
+
+      // 3. 撮影・記録画面タブに遷移
+      navigateTo('shoot');
+      showToast("記録を編集用にロードしました ✏️");
+    }
+
+    function exitEditMode() {
+      editingLogId = null;
+      editBadge.style.display = 'none';
+
+      // フォームをクリアして初期状態へ
+      commentInput.value = '';
+      clearPhotoSelection();
+      setInitialDateTime();
+
+      // 現在地または標準位置へピンをリセット
+      selectedLocation = { ...initialLocation };
+      initRecordMap(selectedLocation.lat, selectedLocation.lng);
+    }
+
+    // --- Navigate Programmatically ---
+    function navigateTo(target) {
+      const tabButton = document.querySelector(`.tab-bar .tab-item[data-target="${target}"]`);
+      if (tabButton) tabButton.click();
+    }
+
+    // --- Clear Photo selection UI ---
+    const clearPhotoSelection = () => {
+      photoInput.value = '';
+      imgPreview.src = '';
+      previewContainer.style.display = 'none';
+      base64ImageData = null;
+    };
+
+    // --- Render History timeline ---
+    function renderHistory() {
+      historyContainer.innerHTML = '';
+      const logs = getLogsFromStorage();
+
+      if (logs.length === 0) {
+        historyContainer.innerHTML = `
+          <div class="app-card empty-state">
+            <div class="empty-icon">📝</div>
+            <p>履歴がまだありません。<br>「記録」タブから撮影・記録してください。</p>
+          </div>
+        `;
+        return;
+      }
+
+      // IDの降順 (新しく作成された順) にソート
+      const sortedLogs = [...logs].sort((a, b) => b.id - a.id);
+
+      sortedLogs.forEach(log => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+
+        const imgHtml = log.image 
+          ? `<div class="history-img-wrapper"><img src="${log.image}" class="history-img" alt="写真"></div>`
+          : `<div class="history-img-wrapper" style="display:flex;align-items:center;justify-content:center;color:var(--text-secondary);font-size:1.5rem;">📷</div>`;
+
+        const datetimeDisplay = log.datetime ? log.datetime.replace('T', ' ') : '日時未設定';
+        const commentDisplay = log.comment ? escapeHtml(log.comment) : '<span style="color:var(--text-secondary);font-style:italic;">コメントなし</span>';
+
+        item.innerHTML = `
+          ${imgHtml}
+          <div class="history-content">
+            <div class="history-date">${datetimeDisplay}</div>
+            <div class="history-comment">${commentDisplay}</div>
+            <div class="history-coords">📍 ${log.location.lat.toFixed(5)}, ${log.location.lng.toFixed(5)}</div>
+          </div>
+          <div class="history-actions">
+            <button class="btn-action edit" onclick='editLogFromHistory(${JSON.stringify(log.id)})' aria-label="編集">✏️</button>
+            <button class="btn-action delete" onclick="deleteLog(${log.id})" aria-label="削除">🗑️</button>
+          </div>
+        `;
+        historyContainer.appendChild(item);
+      });
+    }
+
+    // グローバルスコープで呼べるようにするためのハンドラ
+    window.deleteLog = function(id) {
+      if (confirm('この記録を削除しますか？')) {
+        let logs = getLogsFromStorage();
+        logs = logs.filter(log => log.id !== id);
+        saveLogsToStorage(logs);
+        renderHistory();
+        refreshAllMapMarkers();
+        showToast("記録を削除しました 🗑️");
+        
+        // 編集中のアイテムが削除された場合は編集モードを解除
+        if (editingLogId === id) {
+          exitEditMode();
+        }
+      }
+    };
+
+    window.editLogFromHistory = function(id) {
+      const logs = getLogsFromStorage();
+      const log = logs.find(l => l.id === id);
+      if (log) {
+        enterEditMode(log);
+      }
+    };
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // --- DOMContentLoaded Setup ---
+    document.addEventListener('DOMContentLoaded', () => {
+      
+      // 1. 初期の現在日時セット
+      setInitialDateTime();
+
+      // 2. 地図の初期化 (GPS測位を試みる)
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            initialLocation = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+            selectedLocation = { ...initialLocation };
+            initRecordMap(selectedLocation.lat, selectedLocation.lng);
+          },
+          (error) => {
+            console.warn("位置情報の取得に失敗しました。デフォルト位置で地図を開始します。", error);
+            initRecordMap(selectedLocation.lat, selectedLocation.lng);
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      } else {
+        initRecordMap(selectedLocation.lat, selectedLocation.lng);
+      }
+
+      // 3. 写真選択時の圧縮処理
+      photoInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+          base64ImageData = await processAndCompressImage(file);
+          imgPreview.src = base64ImageData;
+          previewContainer.style.display = 'block';
+        } catch (error) {
+          console.error("画像の圧縮中にエラーが発生しました:", error);
+          alert("画像の読み込み・圧縮に失敗しました。");
+        }
+      });
+
+      // プレビュークリア
+      clearPhotoBtn.addEventListener('click', clearPhotoSelection);
+
+      // 4. 保存ボタン押下
+      saveRecordBtn.addEventListener('click', () => {
+        // バリデーション (写真またはコメントのどちらか必須)
+        if (!base64ImageData && !commentInput.value.trim()) {
+          alert("写真を選択するか、またはコメントを入力してください。");
+          return;
+        }
+
+        let logs = getLogsFromStorage();
+
+        if (editingLogId) {
+          // 【編集・更新】モード
+          const logIndex = logs.findIndex(l => l.id === editingLogId);
+          if (logIndex !== -1) {
+            logs[logIndex] = {
+              id: editingLogId,
+              image: base64ImageData,
+              location: { ...selectedLocation },
+              comment: commentInput.value.trim(),
+              datetime: datetimeInput.value
+            };
+            saveLogsToStorage(logs);
+            showToast("記録を更新しました！ 💾");
+          }
+          // 編集完了に伴い編集モードを終了
+          exitEditMode();
+        } else {
+          // 【新規作成】モード
+          const newLog = {
+            id: Date.now(),
+            image: base64ImageData,
+            location: { ...selectedLocation },
+            comment: commentInput.value.trim(),
+            datetime: datetimeInput.value
+          };
+          logs.unshift(newLog);
+          saveLogsToStorage(logs);
+          showToast("記録を保存しました！ 💾");
+
+          // フォームリセット
+          commentInput.value = '';
+          clearPhotoSelection();
+          setInitialDateTime();
+
+          // ピンを初期位置にリセット
+          selectedLocation = { ...initialLocation };
+          if (recordMarker && recordMap) {
+            recordMarker.setLatLng([selectedLocation.lat, selectedLocation.lng]);
+            recordMap.panTo([selectedLocation.lat, selectedLocation.lng]);
+            updateCoordsDisplay(selectedLocation.lat, selectedLocation.lng);
+          }
+        }
+
+        // 各種画面の再描画
+        renderHistory();
+        refreshAllMapMarkers();
+      });
+
+      // 5. タブ切り替え処理
+      tabItems.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const target = tab.dataset.target;
+
+          // アクティブクラス切り替え
+          tabItems.forEach(item => item.classList.remove('active'));
+          tab.classList.add('active');
+
+          // スクリーン切り替え
+          screens.forEach(screen => {
+            if (screen.id === `screen-${target}`) {
+              screen.classList.add('active');
+            } else {
+              screen.classList.remove('active');
+            }
+          });
+
+          // ヘッダータイトルの更新
+          if (screenTitles[target]) {
+            appTitle.textContent = screenTitles[target];
+          }
+
+          // タブ切り替え時のLeafletリサイズ処理 (非表示のコンテナ内で作成された地図はサイズ計算が狂うため)
+          if (target === 'shoot') {
+            if (recordMap) {
+              recordMap.invalidateSize();
+              recordMap.setView([selectedLocation.lat, selectedLocation.lng]);
+            }
+          } else if (target === 'history') {
+            renderHistory();
+          } else if (target === 'map') {
+            initAllMap();
+            setTimeout(() => {
+              if (allMap) {
+                allMap.invalidateSize();
+                refreshAllMapMarkers();
+              }
+            }, 50); // アニメーションなどの描画タイミング調整
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>
