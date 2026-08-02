@@ -619,6 +619,8 @@
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Exif JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exif-js/2.3.0/exif.min.js"></script>
 
   <!-- JavaScript -->
   <script>
@@ -997,6 +999,51 @@
       photoInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        // EXIFの抽出を試みる
+        EXIF.getData(file, function() {
+          const lat = EXIF.getTag(this, "GPSLatitude");
+          const lng = EXIF.getTag(this, "GPSLongitude");
+          const latRef = EXIF.getTag(this, "GPSLatitudeRef");
+          const lngRef = EXIF.getTag(this, "GPSLongitudeRef");
+
+          if (lat && lng && latRef && lngRef) {
+            const convertDMSToDD = (dms, ref) => {
+              if (!dms || dms.length < 3) return null;
+              
+              // 分数オブジェクト (Rational) の可能性を考慮して値を取得
+              const getVal = (val) => {
+                if (typeof val === 'object' && val.denominator) {
+                  return val.numerator / val.denominator;
+                }
+                return Number(val);
+              };
+
+              const d = getVal(dms[0]);
+              const m = getVal(dms[1]);
+              const s = getVal(dms[2]);
+
+              let dd = d + m / 60 + s / 3600;
+              if (ref === 'S' || ref === 'W') {
+                dd = -dd;
+              }
+              return dd;
+            };
+
+            const decimalLat = convertDMSToDD(lat, latRef);
+            const decimalLng = convertDMSToDD(lng, lngRef);
+
+            if (decimalLat !== null && decimalLng !== null && !isNaN(decimalLat) && !isNaN(decimalLng)) {
+              selectedLocation = { lat: decimalLat, lng: decimalLng };
+              if (recordMarker && recordMap) {
+                recordMarker.setLatLng([selectedLocation.lat, selectedLocation.lng]);
+                recordMap.setView([selectedLocation.lat, selectedLocation.lng], 16);
+                updateCoordsDisplay(selectedLocation.lat, selectedLocation.lng);
+              }
+              showToast("写真から撮影位置を自動抽出しました 📍");
+            }
+          }
+        });
 
         try {
           base64ImageData = await processAndCompressImage(file);
